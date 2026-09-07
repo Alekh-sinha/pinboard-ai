@@ -2,6 +2,12 @@
 
 This is a personal fork of **[andrewyng/openworker](https://github.com/andrewyng/openworker)**. Everything below this section is upstream's own README; this section is the only local addition, kept up top so it survives future merges from upstream instead of getting buried.
 
+### Architectural Diagram
+Overall I studied and the most interesting thing was how team and worker was used. I have tried to summaries my learning in below architecture.
+
+<img width="1536" height="1024" alt="ChatGPT Image Sep 8, 2026, 01_13_01 AM" src="https://github.com/user-attachments/assets/9ebaebe2-ad31-4b97-9a88-480916289992" />
+
+
 ### Added
 
 - **`general-lead` / `general-worker` personas** (`coworker/personas/builtin/general-lead/`, `.../general-worker/`) — a domain-agnostic team lead and fallback worker, staffed the same way any specialist persona is (`team_options`, `propose_team`), for jobs that don't match an existing specialist. The lead's manifest has an explicit model-selection section: cheaper/faster models for simple, well-scoped work; the strongest available model reserved for judgment calls.
