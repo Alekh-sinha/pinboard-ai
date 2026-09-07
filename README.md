@@ -1,19 +1,3 @@
-<h1 align="center">OpenWorker</h1>
-
-<p align="center"><strong><a href="https://openworker.com">openworker.com</a></strong> · <a href="#download">Download</a> · <a href="https://github.com/andrewyng/openworker/issues">Issues</a></p>
-
-<p align="center"><a href="https://trendshift.io/repositories/91434?utm_source=trendshift-badge&amp;utm_medium=badge&amp;utm_campaign=badge-trendshift-91434" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/trendshift/repositories/91434/daily" alt="andrewyng%2Fopenworker | Trendshift" width="250" height="55"/></a></p>
-
-> **Beta** - OpenWorker is in open beta: fully usable, updates itself, and we're actively polishing rough edges. [Issues](https://github.com/andrewyng/openworker/issues) welcome.
-
-**AI that gets your everyday tasks done.** OpenWorker is an open-source AI coworker that lives on your desktop and delivers **finished work**, not just chat: your code reviewed for vulnerabilities with fixes ready to go, a polished document, a Slack reply with the numbers, a triaged inbox. It ships **specialist Security coworkers** first — attackers already use AI, and defenders deserve the same leverage, governed.
-
-It runs on your machine and doesn't lock you into any model: bring your own API key for OpenAI, Anthropic, Google, or an open-weight provider, or run fully local with Ollama. Your data leaves your machine only through the model and integrations *you* choose. Every action an agent takes is governed and logged — see [Governed by design](#governed-by-design).
-
-[![How OpenWorker works](docs/assets/how-it-works.png)](https://openworker.com)
-
----
-
 ## This fork
 
 This is a personal fork of **[andrewyng/openworker](https://github.com/andrewyng/openworker)**. Everything below this section is upstream's own README; this section is the only local addition, kept up top so it survives future merges from upstream instead of getting buried.
