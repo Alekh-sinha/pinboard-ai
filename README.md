@@ -19,16 +19,6 @@ This is a personal fork of **[andrewyng/openworker](https://github.com/andrewyng
 
 ---
 
-## Download
-
-[**⬇ macOS (Apple Silicon)**](https://download.openworker.com/mac)
-<sub>macOS 12+ · signed & notarized · auto-updates</sub>
-
-[**⬇ Windows 10/11 (x64)**](https://download.openworker.com/windows)
-<sub>builds are not yet code-signed, so SmartScreen will warn; signing is in progress</sub>
-
-Open the app, add a model key (or point it at Ollama), and ask for something real.
-
 ## Use cases
 
 Pick a coworker, point it at real work, get a finished deliverable:
