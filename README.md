@@ -13,6 +13,11 @@ This is a personal fork of **[andrewyng/openworker](https://github.com/andrewyng
 - **Three custom MCP servers** (`mcp-servers/search-pro`, `mcp-servers/browser-pool`, `mcp-servers/rag`) — richer web search (Tavily/Brave, topic/date/domain filters), a pooled headless-browser tool, and a local RAG server; registered via `~/.config/coworker/mcp.json`.
 - **Persisted browser logins** (`coworker/browser_logins.py`) — opt-in "stay logged in" for the headed and headless browser tools, storing Playwright session state (cookies/localStorage) per site, never a password, with the same private file protection as the secrets store.
 
+### UI changes
+<img width="1899" height="918" alt="image" src="https://github.com/user-attachments/assets/b262d60f-f204-40c5-b86f-eb829c6c0456" />
+   <img width="1865" height="668" alt="image" src="https://github.com/user-attachments/assets/3b915089-06e6-4c33-b795-a43526fb57c0" />
+
+
 ### Fixed
 
 - **Gemini/Vertex tool-call-id collision** (`coworker/providers/gemini_provider.py`) — Gemini doesn't return a real tool-call id, and the synthesized fallback was derived from a per-response-local index (`call_0` for nearly every single-tool-call turn). Across a session this collided with the Inbox's idempotency-by-id approval guard, silently reusing an earlier turn's (denied) decision for unrelated later tool calls — found by inspecting a real session transcript that hit it, fixed to synthesize a globally-unique id (a real id still wins if a future API version ever returns one).
