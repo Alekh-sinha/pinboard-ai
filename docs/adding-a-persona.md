@@ -100,23 +100,6 @@ Manifests are only scanned **once, at server boot** — editing or adding one re
 restarting the backend before it's picked up. (Skills and tool-registry changes to an
 *already-loaded* persona, by contrast, do hot-reload — see the gotcha below.)
 
-## Two real gotchas, hit while building this session's research team
-
-**A persona only ever sees its own bundled `skills/` folder — never another persona's,
-even a closely related one.** If a lead's prompt says "call `load_skill('x')`", that
-skill must physically exist under *that persona's own* `skills/` directory, or the call
-fails outright. There's no sharing mechanism today; if three personas all need the same
-skill, that skill's folder gets copied into all three. (This is exactly the bug that
-shipped a broken `.docx` earlier this session — the lead's prompt told it to use a
-skill it had never actually been given.)
-
-**`recommended_models` is a hint, not a guarantee.** A lead reading a worker's
-`recommended_models` and naming that exact model in a `propose_team` call can pick a
-provider that isn't configured in the user's actual environment, failing that worker's
-very first turn. If a persona needs to hand a specific model to a worker it staffs, it
-should read `available_models` from the `team_options()` tool result instead — that's
-the user's own real, configured model pool, not a generic manifest field.
-
 ## Further reading
 
 `docs/persona-architecture.md` is a much deeper, code-cited trace-through of how a
