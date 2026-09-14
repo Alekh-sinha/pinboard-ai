@@ -6,8 +6,7 @@ assistant with its own tools and system prompt. There are two ways to add one, d
 on how much control you need.
 
 ## Demo: a persona in use
-
-<video src="assets/adding-a-persona-demo.mp4" controls width="720"></video>
+https://github.com/user-attachments/assets/adding-a-persona-demo.mp4
 
 *(If your viewer doesn't render the tag above, [open the video directly](assets/adding-a-persona-demo.mp4).)*
 
