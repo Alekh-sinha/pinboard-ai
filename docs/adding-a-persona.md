@@ -5,9 +5,9 @@ specialist — a lead that runs a team, a worker staffed onto a board, or a stan
 assistant with its own tools and system prompt. There are two ways to add one, depending
 on how much control you need.
 
-## Demo: a persona in use[
+## Demo: a persona in use
 
-<video src="https://github.com/Alekh-sinha/pinboard-ai/assets/adding-a-persona-demo.mp4" controls width="640" height="360"></video>
+<video src="https://github.com/Alekh-sinha/pinboard-ai/docs/assets/adding-a-persona-demo.mp4" controls width="640" height="360"></video>
 
 *(If your viewer doesn't render the tag above, [open the video directly](assets/adding-a-persona-demo.mp4).)*
 
