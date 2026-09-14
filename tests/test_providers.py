@@ -288,6 +288,7 @@ COMPAT_VENDORS = {
     "qwen": "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
     "xai": "https://api.x.ai/v1",
     "mistral": "https://api.mistral.ai/v1",
+    "litellm": "http://localhost:4000",
 }
 
 
@@ -617,3 +618,149 @@ def test_over_limit_max_tokens_is_dropped_and_retried():
     calls = client.chat.completions.calls
     assert turn.text == "ok" and len(calls) == 2
     assert "max_tokens" not in calls[1]
+
+
+# -- Azure OpenAI (legacy per-deployment API) ----------------------------------------
+
+
+def test_azure_builder_passes_endpoint_key_and_api_version(monkeypatch):
+    import openai
+
+    from coworker.providers.registry import build_provider_client
+
+    captured = {}
+
+    class FakeAzureOpenAI:
+        def __init__(self, *, azure_endpoint, api_key, api_version):
+            captured.update(
+                azure_endpoint=azure_endpoint, api_key=api_key, api_version=api_version
+            )
+
+    monkeypatch.setattr(openai, "AzureOpenAI", FakeAzureOpenAI)
+
+    provider = build_provider_client(
+        "azure",
+        {
+            "endpoint": "https://my-resource.openai.azure.com",
+            "api_key": "az-key",
+            "api_version": "2025-01-01",
+        },
+        None,
+    )
+    assert isinstance(provider, OpenAIProvider)
+    assert captured == {
+        "azure_endpoint": "https://my-resource.openai.azure.com",
+        "api_key": "az-key",
+        "api_version": "2025-01-01",
+    }
+
+
+def test_azure_builder_defaults_api_version_and_falls_back_to_env_key(monkeypatch):
+    import openai
+
+    from coworker.providers.registry import DEFAULT_AZURE_API_VERSION, build_provider_client
+
+    captured = {}
+
+    class FakeAzureOpenAI:
+        def __init__(self, *, azure_endpoint, api_key, api_version):
+            captured.update(
+                azure_endpoint=azure_endpoint, api_key=api_key, api_version=api_version
+            )
+
+    monkeypatch.setattr(openai, "AzureOpenAI", FakeAzureOpenAI)
+    monkeypatch.setenv("AZURE_OPENAI_API_KEY", "env-key")
+
+    build_provider_client("azure", {"endpoint": "https://x.openai.azure.com"}, None)
+    assert captured["api_key"] == "env-key"
+    assert captured["api_version"] == DEFAULT_AZURE_API_VERSION
+
+
+def test_azure_builder_requires_endpoint_and_key(monkeypatch):
+    import pytest
+
+    from coworker.providers.registry import build_provider_client
+
+    monkeypatch.delenv("AZURE_OPENAI_API_KEY", raising=False)
+    with pytest.raises(RuntimeError, match="Azure OpenAI"):
+        build_provider_client("azure", {}, None)
+    with pytest.raises(RuntimeError, match="Azure OpenAI"):
+        build_provider_client("azure", {"endpoint": "https://x.openai.azure.com"}, None)
+
+
+def test_azure_model_id_becomes_the_deployment_name(monkeypatch):
+    """The routed model string's suffix (e.g. `azure:my-gpt4o-deployment`) passes
+    straight through to the SDK call unmodified — OpenAIProvider.complete is reused
+    verbatim, only the client differs, so that suffix IS the Azure deployment name."""
+    import openai
+
+    from coworker.providers.registry import build_provider_client
+
+    monkeypatch.setattr(openai, "AzureOpenAI", lambda **kw: _FakeClient(_response(content="ok")))
+
+    provider = build_provider_client(
+        "azure", {"endpoint": "https://x.openai.azure.com", "api_key": "k"}, None
+    )
+    turn = provider.complete(model="my-gpt4o-deployment", messages=[])
+    assert provider._client.chat.completions.calls[0]["model"] == "my-gpt4o-deployment"
+    assert turn.text == "ok"
+
+
+def test_azure_verify_is_shape_only_no_live_call(monkeypatch):
+    """Azure has no deployment-independent data-plane endpoint to probe (every real
+    inference call needs a deployment name, unknown at connect time) — verifying it
+    against a guessed endpoint (an earlier version of this code did) can't be trusted,
+    so Test validates shape only and never calls httpx at all (owner pushback
+    2026-09-13). A bad key/endpoint surfaces at first real use instead."""
+    from coworker.providers.registry import verify_provider_key
+
+    def boom(*a, **k):
+        raise AssertionError("azure verify must not make a live network call")
+
+    monkeypatch.setattr("httpx.get", boom)
+    monkeypatch.setattr("httpx.post", boom)
+
+    res = verify_provider_key(
+        "azure",
+        api_key="az-key",
+        base_url="",
+        fields={"endpoint": "https://my-resource.openai.azure.com", "api_key": "az-key"},
+    )
+    assert res == {"ok": True}
+
+
+def test_azure_verify_requires_an_endpoint_and_key():
+    from coworker.providers.registry import verify_provider_key
+
+    assert verify_provider_key("azure", api_key="az-key", base_url="", fields={})["ok"] is False
+    assert (
+        verify_provider_key(
+            "azure", api_key="", base_url="", fields={"endpoint": "https://x.openai.azure.com"}
+        )["ok"]
+        is False
+    )
+
+
+def test_azure_verify_requires_a_url_shaped_endpoint():
+    from coworker.providers.registry import verify_provider_key
+
+    res = verify_provider_key(
+        "azure", api_key="az-key", base_url="", fields={"endpoint": "my-resource", "api_key": "az-key"}
+    )
+    assert res["ok"] is False
+
+
+def test_azure_configured_requires_both_key_and_endpoint():
+    """Regression: descriptor_configured's api_key-having branch only ever checked the
+    key, correct for every provider before Azure (their other fields are all optional)
+    but wrong for one with a SECOND required field."""
+    from coworker.providers.registry import descriptor_configured, get_descriptor
+
+    d = get_descriptor("azure")
+    assert d is not None
+    assert descriptor_configured(d, {"api_key": "k"}) is False
+    assert descriptor_configured(d, {"endpoint": "https://x.openai.azure.com"}) is False
+    assert (
+        descriptor_configured(d, {"api_key": "k", "endpoint": "https://x.openai.azure.com"})
+        is True
+    )

@@ -563,6 +563,55 @@ def test_provider_suggested_models(tmp_path, monkeypatch):
     sugg = provs["ollama"]["suggested_models"]
     assert isinstance(sugg, list)
     assert all(not m.startswith("ollama:") for m in sugg)
+    # litellm: unconfigured (no profile saved yet) → no live call attempted, just empty
+    assert provs["litellm"]["suggested_models"] == []
+
+
+def test_litellm_suggested_models_are_discovered_live(tmp_path, monkeypatch):
+    """A LiteLLM proxy's actual model aliases live entirely in its own config.yaml — the
+    same reasoning that gives Ollama live discovery via /api/tags applies here via
+    LiteLLM's OpenAI-compatible /models (owner report 2026-09-13: without this, "add a
+    model" only ever offered two made-up example names, never what the proxy actually
+    serves)."""
+    monkeypatch.setenv("COWORKER_STATE_DIR", str(tmp_path / "state"))
+    from coworker.server.manager import SessionManager
+
+    mgr = SessionManager(data_dir=tmp_path)
+    mgr.set_provider("litellm", {"api_key": "lk", "base_url": "http://localhost:4000"})
+
+    captured = {}
+
+    class _FakeResp:
+        def json(self):
+            return {"data": [{"id": "gpt-4o-mini-alias"}, {"id": "internal-claude"}]}
+
+    def fake_get(url, **kwargs):
+        captured["url"] = url
+        captured["headers"] = kwargs.get("headers")
+        return _FakeResp()
+
+    monkeypatch.setattr("httpx.get", fake_get)
+    sugg = mgr._suggested_models("litellm")
+    assert sugg == ["gpt-4o-mini-alias", "internal-claude"]
+    assert captured["url"] == "http://localhost:4000/models"
+    assert captured["headers"] == {"Authorization": "Bearer lk"}
+
+    provs = {p["name"]: p for p in mgr.get_providers()}
+    assert provs["litellm"]["suggested_models"] == ["gpt-4o-mini-alias", "internal-claude"]
+
+
+def test_litellm_suggested_models_empty_when_unreachable(tmp_path, monkeypatch):
+    monkeypatch.setenv("COWORKER_STATE_DIR", str(tmp_path / "state"))
+    from coworker.server.manager import SessionManager
+
+    mgr = SessionManager(data_dir=tmp_path)
+    mgr.set_provider("litellm", {"api_key": "lk"})
+
+    def boom(url, **kwargs):
+        raise ConnectionError("no proxy there")
+
+    monkeypatch.setattr("httpx.get", boom)
+    assert mgr._suggested_models("litellm") == []
 
 
 # -- last-used tracking (router on_use hook + manager persistence) ----------------

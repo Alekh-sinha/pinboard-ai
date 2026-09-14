@@ -167,7 +167,11 @@ def test_convert_repeated_ids_resolve_to_latest_turn():
     assert names == ["first", "second"]
 
 
-def test_convert_steering_user_message_merges_after_tool_results():
+def test_convert_steering_user_message_stays_a_separate_turn_after_tool_results():
+    """Corrected 2026-09-13 (real incident): a steering/wake user message must NOT
+    merge into the same content entry as a preceding tool result — Gemini 400s on a
+    function_response mixed with text in one turn. See
+    test_convert_never_mixes_a_function_response_with_plain_text_in_one_turn."""
     _, contents = convert_messages(
         [
             {"role": "user", "content": "go"},
@@ -182,9 +186,9 @@ def test_convert_steering_user_message_merges_after_tool_results():
             {"role": "user", "content": "actually, stop"},
         ]
     )
-    parts = contents[2]["parts"]
-    assert "function_response" in parts[0]
-    assert parts[1] == {"text": "actually, stop"}
+    assert [c["role"] for c in contents[2:]] == ["user", "user"]
+    assert "function_response" in contents[2]["parts"][0]
+    assert contents[3]["parts"] == [{"text": "actually, stop"}]
 
 
 def test_convert_image_data_url_to_inline_data():
@@ -226,6 +230,93 @@ def test_convert_guards_first_user_and_empty_history():
     assert contents[0] == {"role": "user", "parts": [{"text": "(continued)"}]}
     with pytest.raises(ValueError):
         convert_messages([{"role": "assistant", "content": ""}])
+
+
+def test_convert_guards_a_trailing_model_turn():
+    """Gemini 400s outright on a request ending in role "model" ("Requests ending
+    with a model turn are not supported") — a dangling trailing assistant message
+    (left by an interrupted/errored turn, or an unresolved tool call) must not reach
+    the API as the last content entry."""
+    _, contents = convert_messages(
+        [
+            {"role": "user", "content": "hi"},
+            {"role": "assistant", "content": "partial reply"},
+        ]
+    )
+    assert contents[-1]["role"] == "user"
+
+
+def test_convert_guards_a_trailing_dangling_tool_call():
+    _, contents = convert_messages(
+        [
+            {"role": "user", "content": "hi"},
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {"id": "c1", "function": {"name": "move_item", "arguments": "{}"}}
+                ],
+            },
+        ]
+    )
+    assert contents[-1]["role"] == "user"
+
+
+def test_convert_never_mixes_a_function_response_with_plain_text_in_one_turn():
+    """Real incident (2026-09-13): a worker's tool result immediately followed by a
+    board digest/steering message (both canonical role "user") used to fold into ONE
+    content entry carrying both a function_response part and a text part — Gemini
+    400s outright on that shape ("error 400 when response contains both text and
+    functionCall" / the mirror-image on the user side), independent of the
+    trailing-role guard above. They must land as two separate content entries."""
+    _, contents = convert_messages(
+        [
+            {"role": "user", "content": "go"},
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                    {"id": "c1", "function": {"name": "write_file", "arguments": "{}"}}
+                ],
+            },
+            {"role": "tool", "tool_call_id": "c1", "content": "ok"},
+            {"role": "user", "content": "⏰ Board wake — 1 item moved."},
+        ]
+    )
+    assert [c["role"] for c in contents[-2:]] == ["user", "user"]
+    fr_entry, text_entry = contents[-2], contents[-1]
+    assert "function_response" in fr_entry["parts"][0]
+    assert fr_entry["parts"] == [
+        {
+            "function_response": {
+                "name": "write_file",
+                "response": {"result": "ok"},
+            }
+        }
+    ]
+    assert text_entry["parts"] == [{"text": "⏰ Board wake — 1 item moved."}]
+
+
+def test_convert_still_folds_multiple_tool_results_answering_one_model_turn():
+    """The desired fold case stays intact: several function_responses answering the
+    SAME model turn's several calls collapse into one user content entry."""
+    _, contents = convert_messages(
+        [
+            {"role": "user", "content": "go"},
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                    {"id": "c1", "function": {"name": "a", "arguments": "{}"}},
+                    {"id": "c2", "function": {"name": "b", "arguments": "{}"}},
+                ],
+            },
+            {"role": "tool", "tool_call_id": "c1", "content": "1"},
+            {"role": "tool", "tool_call_id": "c2", "content": "2"},
+        ]
+    )
+    assert contents[-1]["role"] == "user"
+    assert len(contents[-1]["parts"]) == 2
 
 
 # -- tool schema conversion ----------------------------------------------------------
@@ -602,7 +693,10 @@ def test_convert_reattaches_signatures_to_parts():
             },
         ]
     )
-    parts = contents[-1]["parts"]
+    # Trailing model turn with unanswered tool calls: the converter appends a
+    # synthetic continuation turn after it (see test_convert_guards_a_trailing_
+    # dangling_tool_call), so the assistant's own parts sit one entry back.
+    parts = contents[-2]["parts"]
     assert parts[0] == {"text": "on it", "thought_signature": "dHNpZw=="}
     assert "thought_signature" not in parts[1]  # first call had no signature
     assert parts[2]["function_call"]["name"] == "b"
@@ -626,7 +720,7 @@ def test_convert_signature_parts_validate_as_sdk_types():
             },
         ]
     )
-    part = types_mod.Part.model_validate(contents[-1]["parts"][0])
+    part = types_mod.Part.model_validate(contents[-2]["parts"][0])
     assert part.thought_signature == b"sig"
 
 

@@ -717,10 +717,11 @@ class SessionManager:
             skill_filter=lambda sid=session_id, w=ws, a=agent_name: (
                 self.effective_skill_names(sid, w, agent=a)
             ),
-            # Persona-carried skills (OPE-58): the bundle's skills/ dir joins the loader
-            # so its skills are readable, not just listed.
+            # Persona-carried skills (OPE-58): the bundle's skills/ dir (plus, for a
+            # lead/worker, the shared team pool) joins the loader so its skills are
+            # readable, not just listed.
             extra_skill_dirs=(
-                [d] if (d := self.persona_skill_scope(agent_name)[0]) is not None else None
+                [d for d, _ in self.persona_skill_scope(agent_name)] or None
             ),
             # Auto-Approve (spec §1.5): prefs-backed, so the Settings toggle takes effect on
             # the next session build without a config.toml edit.
@@ -2132,7 +2133,12 @@ class SessionManager:
         def team_options() -> dict:
             """List the worker coworkers available for staffing (call before
             propose_team). Only team-capable workers are listed — solo coworkers
-            cannot join a team."""
+            cannot join a team. `available_models` is the user's own configured
+            worker-model pool — the only models actually reachable in this
+            environment; a persona's own `recommended_models` is a generic,
+            environment-unaware hint and may name a provider that isn't configured
+            here. Naming a model for a `propose_team` member that isn't in
+            `available_models` risks failing that worker's very first turn."""
             out = []
             # Registry entries directly — NOT list_all(), which applies the
             # ships:false visibility filter: a lead that is running (internal
@@ -2153,7 +2159,7 @@ class SessionManager:
                         "recommended_models": list(m.recommended_models),
                     }
                 )
-            return {"workers": out}
+            return {"workers": out, "available_models": manager.get_default_worker_model_pool()}
 
         return ai.tool(
             team_options,
@@ -3163,14 +3169,21 @@ class SessionManager:
         "qwen": ["qwen3-max", "qwen3-coder-plus", "qwen-plus"],
         "xai": ["grok-4.3", "grok-4"],
         "mistral": ["mistral-large-latest", "mistral-small-latest"],
+        # A proxy's actual aliases are entirely up to its own config.yaml — these are
+        # just the common example names LiteLLM's own docs use, not a guarantee.
+        "litellm": ["gpt-4o", "claude-3-5-sonnet"],
     }
 
     def _suggested_models(self, name: str) -> list[str]:
         """Bare model-name suggestions for the 'add model' form (datalist), per provider.
-        Ollama → live `/api/tags` (best-effort); everyone else → the curated matrix,
-        topped up with the compat-vendor extras the matrix doesn't vouch for."""
+        Ollama → live `/api/tags`; LiteLLM → live `/models` (both best-effort — a
+        gateway's actual model set can only ever be known live, never guessed);
+        everyone else → the curated matrix, topped up with the compat-vendor extras
+        the matrix doesn't vouch for."""
         if name == "ollama":
             return [m.split(":", 1)[-1] for m in self._ollama_models()]
+        if name == "litellm":
+            return [m.split(":", 1)[-1] for m in self._litellm_models()]
         from ..providers.matrix import models_for_provider
 
         return list(
@@ -3415,6 +3428,35 @@ class SessionManager:
             data = httpx.get(base + "/api/tags", timeout=2.0).json()
             return [
                 f"ollama:{m['name']}" for m in data.get("models", []) if m.get("name")
+            ]
+        except Exception:
+            return []
+
+    def _litellm_models(self) -> list[str]:
+        """Live list of models a configured LiteLLM proxy actually serves (its
+        OpenAI-compatible `/models`), as `litellm:<id>`. A proxy's aliases are entirely
+        up to its own config.yaml — no fixed suggestion list could ever be right, so
+        this mirrors `_ollama_models()` exactly rather than falling back to the generic
+        curated-matrix path every other compat vendor uses (owner report 2026-09-13:
+        without this, "add a model" only ever offered two made-up example names).
+        Empty if litellm isn't configured or unreachable — best-effort, never raises."""
+        profile = self.secrets.get("provider:litellm")
+        if not profile:
+            return []
+        api_key = (profile.get("api_key") or "").strip()
+        if not api_key:
+            return []
+        base = (profile.get("base_url") or "http://localhost:4000").strip().rstrip("/")
+        try:
+            import httpx
+
+            data = httpx.get(
+                base + "/models",
+                headers={"Authorization": f"Bearer {api_key}"},
+                timeout=2.0,
+            ).json()
+            return [
+                f"litellm:{m['id']}" for m in data.get("data", []) if m.get("id")
             ]
         except Exception:
             return []
@@ -4540,7 +4582,7 @@ class SessionManager:
                 self.effective_skill_names(sid, w, agent=a)
             ),
             extra_skill_dirs=(
-                [d] if (d := self.persona_skill_scope(task.agent)[0]) is not None else None
+                [d for d, _ in self.persona_skill_scope(task.agent)] or None
             ),
             worker_catalog=self.personas.worker_catalog,
             model_catalog=self._curated_models,
@@ -5980,35 +6022,43 @@ class SessionManager:
 
     def persona_skill_scope(
         self, persona_id: str
-    ) -> tuple[Optional[Path], Optional[set[str]]]:
-        """The persona's own skill folder + optional allowlist (OPE-58).
+    ) -> list[tuple[Path, Optional[set[str]]]]:
+        """The persona's skill sources: its own bundled folder (if it ships one) PLUS
+        the shared team pool (if it's a lead/worker) — additive, never either/or (OPE-58,
+        widened 2026-09-13 so a specialist lead keeps its own bundled skills once it also
+        gains the shared pool below).
 
         A manifest-backed persona carries skills as a `skills/` dir next to its manifest —
         the sharing bundle shape (manifest + skill folders). The manifest's `skills:` list,
         when non-empty, narrows which of those activate. Additive on top of global/project
         scopes: the persona SHIPS skills; it never hides the user's own.
 
-        general-lead/general-worker are a special case: their manifest lives under
-        coworker/personas/builtin/ (the installed app, not user data), so a Team-page
-        "add a skill" can't write there. Redirect to the writable persona-skills dirs
-        SkillStore already uses for scope="lead"/"worker" (skills/store.py), unfiltered
-        — the dedicated directory itself is the scope, same posture as the global
-        library, no `skills:` allowlist needed."""
-        if persona_id in ("general-lead", "general-worker"):
-            from ..skills.store import LEAD_SCOPE, WORKER_SCOPE
-
-            scope = LEAD_SCOPE if persona_id == "general-lead" else WORKER_SCOPE
-            d = self.skill_store.dir_for_scope(scope)
-            return (d if d.is_dir() else None), None
+        Every team lead/worker (not just general-lead/general-worker) also gets the
+        shared, writable persona-skills dir SkillStore uses for scope="lead"/"worker"
+        (skills/store.py) — general-lead/general-worker just happen to have no bundled
+        folder of their own, so this is all they ever contributed. Unfiltered: the
+        dedicated directory itself is the scope, same posture as the global library, no
+        `skills:` allowlist needed."""
+        out: list[tuple[Path, Optional[set[str]]]] = []
         entry = self.personas.get(persona_id)
         manifest = entry.manifest if entry else None
-        if manifest is None or not manifest.source:
-            return None, None
-        d = Path(manifest.source).parent / "skills"
-        if not d.is_dir():
-            return None, None
-        allow = {s for s in manifest.skills if s} or None
-        return d, allow
+
+        if manifest is not None and manifest.source:
+            d = Path(manifest.source).parent / "skills"
+            if d.is_dir():
+                allow = {s for s in manifest.skills if s} or None
+                out.append((d, allow))
+
+        team = manifest.team if manifest else None
+        if team in ("lead", "worker"):
+            from ..skills.store import LEAD_SCOPE, WORKER_SCOPE
+
+            scope = LEAD_SCOPE if team == "lead" else WORKER_SCOPE
+            d = self.skill_store.dir_for_scope(scope)
+            if d.is_dir():
+                out.append((d, None))
+
+        return out
 
     def effective_skill_names(
         self,
@@ -6025,8 +6075,7 @@ class SessionManager:
             dirs.append(self.skill_store.project_dir(workspace))
         loader = SkillLoader(dirs)
         names = set(loader.names())
-        persona_dir, allow = self.persona_skill_scope(self._persona_of(session_id, agent))
-        if persona_dir is not None:
+        for persona_dir, allow in self.persona_skill_scope(self._persona_of(session_id, agent)):
             persona_names = set(SkillLoader([persona_dir]).names())
             if allow is not None:
                 persona_names &= allow
@@ -6056,12 +6105,11 @@ class SessionManager:
             if r["name"] not in disabled
         ]
         seen = {r["name"] for r in rows}
-        persona_dir, allow = self.persona_skill_scope(self._persona_of(session_id))
-        if persona_dir is not None:
+        for persona_dir, allow in self.persona_skill_scope(self._persona_of(session_id)):
             for entry in SkillLoader([persona_dir]).catalog():
                 name = entry["name"]
                 if name in seen or name in disabled:
-                    continue  # a global/project copy shadows the bundle's
+                    continue  # a global/project copy (or an earlier persona source) shadows this one
                 if allow is not None and name not in allow:
                     continue
                 rows.append(
@@ -6072,6 +6120,7 @@ class SessionManager:
                         "enabled": overrides.get(name, True),
                     }
                 )
+                seen.add(name)
         return {"skills": rows}
 
     def _scratch_workspace_error(self, workspace: Any) -> Optional[dict[str, Any]]:

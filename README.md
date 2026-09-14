@@ -1,27 +1,17 @@
-<h1 align="center">OpenWorker</h1>
-
-<p align="center"><strong><a href="https://openworker.com">openworker.com</a></strong> · <a href="#download">Download</a> · <a href="https://github.com/andrewyng/openworker/issues">Issues</a></p>
-
-<p align="center"><a href="https://trendshift.io/repositories/91434?utm_source=trendshift-badge&amp;utm_medium=badge&amp;utm_campaign=badge-trendshift-91434" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/trendshift/repositories/91434/daily" alt="andrewyng%2Fopenworker | Trendshift" width="250" height="55"/></a></p>
-
-> **Beta** - OpenWorker is in open beta: fully usable, updates itself, and we're actively polishing rough edges. [Issues](https://github.com/andrewyng/openworker/issues) welcome.
-
-**AI that gets your everyday tasks done.** OpenWorker is an open-source AI coworker that lives on your desktop and delivers **finished work**, not just chat: your code reviewed for vulnerabilities with fixes ready to go, a polished document, a Slack reply with the numbers, a triaged inbox. It ships **specialist Security coworkers** first — attackers already use AI, and defenders deserve the same leverage, governed.
-
-It runs on your machine and doesn't lock you into any model: bring your own API key for OpenAI, Anthropic, Google, or an open-weight provider, or run fully local with Ollama. Your data leaves your machine only through the model and integrations *you* choose. Every action an agent takes is governed and logged — see [Governed by design](#governed-by-design).
-
-[![How OpenWorker works](docs/assets/how-it-works.png)](https://openworker.com)
-
----
-
 ## This fork
 
 This is a personal fork of **[andrewyng/openworker](https://github.com/andrewyng/openworker)**. Everything below this section is upstream's own README; this section is the only local addition, kept up top so it survives future merges from upstream instead of getting buried.
 
+### Architectural Diagram
+Overall I studied and the most interesting thing was how team and worker was used. I have tried to summaries my learning in below architecture.
+
+<img width="1536" height="1024" alt="ChatGPT Image Sep 8, 2026, 01_13_01 AM" src="https://github.com/user-attachments/assets/9ebaebe2-ad31-4b97-9a88-480916289992" />
+
+
 ### Added
 
 - **`general-lead` / `general-worker` personas** (`coworker/personas/builtin/general-lead/`, `.../general-worker/`) — a domain-agnostic team lead and fallback worker, staffed the same way any specialist persona is (`team_options`, `propose_team`), for jobs that don't match an existing specialist. The lead's manifest has an explicit model-selection section: cheaper/faster models for simple, well-scoped work; the strongest available model reserved for judgment calls.
-- **`research-lead` / `research-assistant` personas** (`coworker/personas/builtin/research-lead/`, `.../research-assistant/`) — a deep-research team pairing built on the new MCP servers below.
+- **`research-lead` / `research-assistant` / `doc-worker` personas** (`coworker/personas/builtin/research-lead/`, `.../research-assistant/`, `.../doc-worker/`) — a research team (lead + web-research worker + a document-handling worker with its own `doc-helper` skill for skimming/converting Word, PDF, and Excel files) built on the new MCP servers below. See [`docs/adding-a-persona.md`](docs/adding-a-persona.md) for how to add your own, with a demo video.
 - **Team page** (`surfaces/gui/src/components/TeamPage.tsx`) — a "+ → Persona → Team" surface with a Lead box and a Worker box, each with its own private skill library (`coworker/skills/store.py`'s `LEAD_SCOPE`/`WORKER_SCOPE`), reusing the existing skill-store and per-persona connections mechanisms rather than building new ones.
 - **Worker registration** (`surfaces/gui/src/components/WorkerRegistrationSection.tsx`, `coworker/personas/subagent_builder.py`) — build a fully custom worker (its own manifest/system prompt) from the Team page; lands disabled pending consent through the existing third-party-persona install path. Gated behind a flag (`showWorkerRegistration` in `flags.ts`, default on).
 - **Per-team connector/MCP grants** (`coworker/teams/grants.py`) — lets a user widen one team's lead/workers with extra connectors on top of their manifests, scoped to that team rather than editing the persona itself.
@@ -29,21 +19,16 @@ This is a personal fork of **[andrewyng/openworker](https://github.com/andrewyng
 - **Three custom MCP servers** (`mcp-servers/search-pro`, `mcp-servers/browser-pool`, `mcp-servers/rag`) — richer web search (Tavily/Brave, topic/date/domain filters), a pooled headless-browser tool, and a local RAG server; registered via `~/.config/coworker/mcp.json`.
 - **Persisted browser logins** (`coworker/browser_logins.py`) — opt-in "stay logged in" for the headed and headless browser tools, storing Playwright session state (cookies/localStorage) per site, never a password, with the same private file protection as the secrets store.
 
+### UI changes
+<img width="1899" height="918" alt="image" src="https://github.com/user-attachments/assets/b262d60f-f204-40c5-b86f-eb829c6c0456" />
+   <img width="1865" height="668" alt="image" src="https://github.com/user-attachments/assets/3b915089-06e6-4c33-b795-a43526fb57c0" />
+
+
 ### Fixed
 
 - **Gemini/Vertex tool-call-id collision** (`coworker/providers/gemini_provider.py`) — Gemini doesn't return a real tool-call id, and the synthesized fallback was derived from a per-response-local index (`call_0` for nearly every single-tool-call turn). Across a session this collided with the Inbox's idempotency-by-id approval guard, silently reusing an earlier turn's (denied) decision for unrelated later tool calls — found by inspecting a real session transcript that hit it, fixed to synthesize a globally-unique id (a real id still wins if a future API version ever returns one).
 
 ---
-
-## Download
-
-[**⬇ macOS (Apple Silicon)**](https://download.openworker.com/mac)
-<sub>macOS 12+ · signed & notarized · auto-updates</sub>
-
-[**⬇ Windows 10/11 (x64)**](https://download.openworker.com/windows)
-<sub>builds are not yet code-signed, so SmartScreen will warn; signing is in progress</sub>
-
-Open the app, add a model key (or point it at Ollama), and ask for something real.
 
 ## Use cases
 

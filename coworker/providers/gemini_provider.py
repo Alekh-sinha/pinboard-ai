@@ -188,8 +188,13 @@ def convert_messages(
 
     Function calls have no ids on the wire, so tool results are matched back to their function
     NAME via an id→name map built from the assistant turns. Consecutive same-role outputs fold
-    into one content entry (tool-result runs collapse into a single user message, steering text
-    merging after — Gemini also dislikes non-alternating roles).
+    into one content entry so multiple tool results answering one model turn collapse into a
+    single user message (Gemini dislikes non-alternating roles) — but a function_response is
+    never folded together with a plain-text user turn (steering, a wake, a fresh message):
+    Gemini 400s outright on a content block mixing a function_response part with a text part
+    (confirmed against the API — see the trailing-turn tests below for the reproduction this
+    guards against). Each converted entry below carries an internal `_kind` marker (fr vs.
+    text) that decides fold eligibility; it never reaches the API — stripped before returning.
     """
     system_parts: list[str] = []
     index = 0
@@ -211,12 +216,13 @@ def convert_messages(
                     {
                         "role": "user",
                         "parts": [{"text": f"<system>\n{text}\n</system>"}],
+                        "_kind": "text",
                     }
                 )
         elif role == "user":
             parts = _user_parts(message.get("content"))
             if parts:
-                converted.append({"role": "user", "parts": parts})
+                converted.append({"role": "user", "parts": parts, "_kind": "text"})
         elif role == "assistant":
             sidecar = message.get("_gemini") or {}
             call_sigs = sidecar.get("call_sigs") or []
@@ -241,7 +247,7 @@ def convert_messages(
                     part["thought_signature"] = call_sigs[i]
                 parts.append(part)
             if parts:
-                converted.append({"role": "model", "parts": parts})
+                converted.append({"role": "model", "parts": parts, "_kind": "model"})
         elif role == "tool":
             call_id = message.get("tool_call_id") or ""
             converted.append(
@@ -255,20 +261,33 @@ def convert_messages(
                             }
                         }
                     ],
+                    "_kind": "fr",
                 }
             )
 
     folded: list[dict[str, Any]] = []
     for message in converted:
-        if folded and folded[-1]["role"] == message["role"]:
+        if (
+            folded
+            and folded[-1]["role"] == message["role"]
+            and folded[-1]["_kind"] == message["_kind"]
+        ):
             folded[-1]["parts"].extend(message["parts"])
         else:
-            folded.append(message)
+            folded.append(dict(message))
+    for message in folded:
+        message.pop("_kind", None)
 
     if not folded:
         raise ValueError("no convertible messages for the Gemini API")
     if folded[0]["role"] != "user":
         folded.insert(0, {"role": "user", "parts": [{"text": "(continued)"}]})
+    if folded[-1]["role"] != "user":
+        # Gemini rejects a request ending on a "model" turn outright ("Requests ending
+        # with a model turn are not supported"). A dangling trailing assistant message
+        # (e.g. history left mid-exchange by an interrupted or errored turn, or a stray
+        # tool call whose result never landed) must not reach the API as-is.
+        folded.append({"role": "user", "parts": [{"text": "(continue)"}]})
 
     return ("\n\n".join(system_parts) or None), folded
 

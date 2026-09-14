@@ -35,12 +35,14 @@ def test_release_lineup(tmp_path, monkeypatch):
     monkeypatch.delenv("OPENWORKER_UNSHIPPED", raising=False)
     reg = _reg(tmp_path)
     assert [e["name"] for e in reg.sidebar()] == [
-        "cowork", "cloud-posture", "dep-audit", "general-lead", "security",
+        "cowork", "cloud-posture", "dep-audit", "general-lead", "research-lead",
+        "security",
     ]
     listed = {p["id"]: p for p in reg.list_all()}
     assert set(listed) == {
         "cowork", "code", "cloud-posture", "dep-audit", "security",
-        "general-lead", "general-worker",
+        "general-lead", "general-worker", "research-lead", "research-assistant",
+        "doc-worker",
     }
     assert listed["code"]["enabled"] is False and listed["code"]["surfaced"] is False
     assert listed["cloud-posture"]["group"] == "security"

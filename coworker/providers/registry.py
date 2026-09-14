@@ -7,12 +7,16 @@ a `ProviderClient`. The `ProviderRouter` selects a descriptor by the `provider:`
 model string and builds (and caches) its client from the matching SecretStore profile.
 
 Today: `openai` (the default — native models via the Responses API; an optional custom
-endpoint covering Azure OpenAI's `/openai/v1` and any OpenAI-compliant gateway keeps the
-Chat Completions path), `anthropic` (native Messages API via
-`AnthropicProvider`), `gemini` (native Google GenAI API via `GeminiProvider`), `bedrock`
-(models in the user's own AWS account — Claude natively, everything else via Converse),
-`vertex` (the user's own GCP project — Gemini and Claude natively, open-weight via the
-MaaS endpoint), and `ollama` (local, OpenAI-compatible `/v1`).
+endpoint covering Azure OpenAI's newer unified `/openai/v1` surface and any
+OpenAI-compliant gateway keeps the Chat Completions path), `anthropic` (native Messages
+API via `AnthropicProvider`), `gemini` (native Google GenAI API via `GeminiProvider`),
+`bedrock` (models in the user's own AWS account — Claude natively, everything else via
+Converse), `vertex` (the user's own GCP project — Gemini and Claude natively,
+open-weight via the MaaS endpoint), `ollama` (local, OpenAI-compatible `/v1`), `litellm`
+(a self-hosted LiteLLM proxy — OpenAI-compatible, same compat path as the vendor list
+below), and `azure` (the LEGACY per-deployment Azure OpenAI API — different URL shape
+and auth header than plain `openai`'s custom-endpoint path, so it gets its own
+descriptor via the SDK's `AzureOpenAI` client; see `_build_azure`).
 """
 
 from __future__ import annotations
@@ -30,6 +34,9 @@ from .openai_responses import OpenAIResponsesProvider
 from .vertex_provider import VertexProvider
 
 DEFAULT_OLLAMA_URL = "http://localhost:11434"
+# Azure versions its REST API by date; this is a recent stable GA version. Editable per
+# profile since a given resource may be pinned to an older one.
+DEFAULT_AZURE_API_VERSION = "2024-10-21"
 
 
 @dataclass(frozen=True)
@@ -199,6 +206,30 @@ def _build_ollama(profile: dict[str, Any], secrets: Any) -> ProviderClient:
     # string, so we pass a placeholder. `base_url` comes from the stored profile (or the default).
     base_url = _normalize_ollama_url((profile or {}).get("base_url"))
     return OpenAIProvider(api_key="ollama", base_url=base_url)
+
+
+def _build_azure(profile: dict[str, Any], secrets: Any) -> ProviderClient:
+    # The legacy Azure OpenAI API isn't a plain base_url swap on the stock OpenAI client:
+    # it needs a different URL shape (deployment name in the path) and an `api-key:`
+    # header instead of `Authorization: Bearer`, both of which the SDK's dedicated
+    # AzureOpenAI class handles internally. `model=` on each call (OpenAIProvider's own
+    # `complete`/`stream`, unmodified) becomes the deployment name — so one Azure
+    # connection here serves as many deployments as the user adds as models
+    # (`azure:<deployment-name>`), no per-deployment profile needed.
+    from openai import AzureOpenAI
+
+    p = profile or {}
+    endpoint = (p.get("endpoint") or "").strip()
+    api_key = (p.get("api_key") or "").strip() or os.environ.get(
+        "AZURE_OPENAI_API_KEY", ""
+    ).strip()
+    api_version = (p.get("api_version") or "").strip() or DEFAULT_AZURE_API_VERSION
+    if not endpoint or not api_key:
+        raise RuntimeError(
+            "Azure OpenAI needs both an endpoint and an API key — add them in Settings ▸ Models."
+        )
+    client = AzureOpenAI(azure_endpoint=endpoint, api_key=api_key, api_version=api_version)
+    return OpenAIProvider(client=client)
 
 
 def _openai_compat(vendor: str, default_base_url: str, env_key: Optional[str] = None):
@@ -687,6 +718,45 @@ DESCRIPTORS: list[ProviderDescriptor] = [
         # `ollama pull qwen3-coder:30b`.
         recommended_model="qwen3-coder:30b",
     ),
+    _compat(
+        "litellm",
+        "LiteLLM",
+        base_url="http://localhost:4000",
+        recommended_model="gpt-4o",
+        env_key="LITELLM_API_KEY",
+        endpoint_help="Your LiteLLM proxy's URL (self-hosted default is localhost:4000).",
+    ),
+    ProviderDescriptor(
+        name="azure",
+        title="Azure OpenAI",
+        needs_key=True,
+        fields=[
+            ProviderField(
+                "endpoint",
+                "Azure endpoint",
+                help="Your resource's endpoint, e.g. https://<resource>.openai.azure.com",
+            ),
+            ProviderField(
+                "api_key",
+                "Azure OpenAI API key",
+                secret=True,
+            ),
+            ProviderField(
+                "api_version",
+                "API version",
+                required=False,
+                default=DEFAULT_AZURE_API_VERSION,
+                placeholder=DEFAULT_AZURE_API_VERSION,
+                help="Azure versions its API by date; the default works for most deployments.",
+            ),
+        ],
+        build=_build_azure,
+        # No sensible default: a deployment name is per-tenant, never a shared id like
+        # other providers' recommended_model. Add each deployment as a model below.
+        recommended_model=None,
+        env_key="AZURE_OPENAI_API_KEY",
+        blurb="Your own Azure OpenAI resource — add each deployment below as a model, by its deployment name.",
+    ),
 ]
 
 _BY_NAME = {d.name: d for d in DESCRIPTORS}
@@ -716,6 +786,9 @@ def descriptor_configured(d: ProviderDescriptor, profile: dict[str, Any]) -> boo
     """Whether a provider is usable with the given stored profile. Single-key providers:
     a stored or env key. Multi-field cloud providers (no `api_key` field, e.g. Bedrock):
     every required field present — their actual credentials may be ambient (~/.aws, ADC).
+    An `api_key` field AND another required field (Azure: `endpoint`) needs both — every
+    provider before Azure with an `api_key` field had no OTHER required field, so this
+    branch never had to check for one.
     """
     if d.auth == "oauth":
         # A stored token set = signed in (the tokens live in the same profile).
@@ -724,9 +797,11 @@ def descriptor_configured(d: ProviderDescriptor, profile: dict[str, Any]) -> boo
         return True  # keyless (Ollama) — usable out of the box
     profile = profile or {}
     if any(f.key == "api_key" for f in d.fields):
-        return bool(profile.get("api_key")) or bool(
+        has_key = bool(profile.get("api_key")) or bool(
             d.env_key and os.environ.get(d.env_key)
         )
+        other_required = [f for f in d.fields if f.key != "api_key" and f.required]
+        return has_key and all(profile.get(f.key) for f in other_required)
     return all(profile.get(f.key) for f in d.fields if f.required)
 
 
@@ -927,6 +1002,30 @@ def _verify_vertex(fields: dict[str, Any], timeout: float) -> dict[str, Any]:
     return {"ok": False, "error": f"Vertex AI returned HTTP {resp.status_code}."}
 
 
+def _verify_azure(fields: dict[str, Any]) -> dict[str, Any]:
+    """Shape-only check, deliberately not a live call (owner pushback 2026-09-13,
+    correcting an earlier mistake here): every real Azure OpenAI inference call needs
+    a deployment name in its URL, and no deployment is known yet at connect time —
+    there's no data-plane endpoint this can lean on the way OpenAI's /v1/models or
+    LiteLLM's /models work, and asserting one without verifying it against a real
+    Azure resource was wrong. A bad key or endpoint surfaces the first time a
+    deployment is actually used — a normal runtime error then, same as any other
+    provider failure past setup, not a setup-time promise this code can't back up."""
+    f = fields or {}
+    endpoint = (f.get("endpoint") or "").strip()
+    api_key = (f.get("api_key") or "").strip()
+    if not endpoint:
+        return {"ok": False, "error": "Enter your Azure endpoint."}
+    if not (endpoint.startswith("https://") or endpoint.startswith("http://")):
+        return {
+            "ok": False,
+            "error": "Endpoint should be a full URL, e.g. https://<resource>.openai.azure.com",
+        }
+    if not api_key:
+        return {"ok": False, "error": "Enter your Azure OpenAI API key."}
+    return {"ok": True}
+
+
 def verify_provider_key(
     name: str,
     *,
@@ -954,6 +1053,8 @@ def verify_provider_key(
         return _verify_bedrock(fields or {}, timeout)
     if name == "vertex":
         return _verify_vertex(fields or {}, timeout)
+    if name == "azure":
+        return _verify_azure(fields or {})
     try:
         if name == "anthropic":
             resp = httpx.get(
@@ -986,7 +1087,8 @@ def verify_provider_key(
                 },
                 timeout=timeout,
             )
-        else:  # openai + any OpenAI-compatible endpoint (Azure, OpenRouter, vendors, vLLM…)
+        else:  # openai + any OpenAI-compatible endpoint (OpenAI's own /openai/v1 unified
+            # surface for Azure, OpenRouter, vendors, vLLM…) — NOT legacy Azure, see above.
             default_base = next(
                 (f.default for f in d.fields if f.key == "base_url" and f.default), ""
             )

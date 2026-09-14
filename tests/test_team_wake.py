@@ -238,6 +238,19 @@ def test_team_options_lists_only_enabled_workers(manager):
     assert "cloud-posture" not in workers  # its posture-WORKER variant is
 
 
+def test_team_options_surfaces_the_configured_worker_model_pool(manager):
+    """A lead choosing a specific model per worker must pick from what's actually
+    configured (owner-hit 2026-09-14: a lead named a bare `anthropic:` model in an
+    environment with only Vertex configured, failing the worker's first turn) —
+    never from a persona's own environment-unaware `recommended_models` hint."""
+    manager.set_default_worker_model_pool(["vertex:gemini/gemini-3.6-flash", "vertex:claude/claude-haiku-4-5"])
+    tool = manager._team_options_tool()
+    result = tool()
+    assert result["available_models"] == [
+        "vertex:gemini/gemini-3.6-flash", "vertex:claude/claude-haiku-4-5",
+    ]
+
+
 def test_turn_saves_never_detach_a_worker_from_its_team(manager, monkeypatch):
     from coworker.agents.base import Agent
     from coworker.sessions import SessionRecord

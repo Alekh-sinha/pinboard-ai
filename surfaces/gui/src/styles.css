@@ -89,6 +89,16 @@
   --teal-ink: #0f766e;        /* connector approval badges */
   --teal-line: #cfebea;
   --teal-soft: #edfafa;
+  /* Team page icon badges (owner ask 2026-09-13): the shared accent-soft/teal-soft
+     tokens above are deliberately near-white, tuned for subtle selection states —
+     too pale to read as a real color when used standalone on an icon badge. These
+     are a notch more saturated, purpose-built for that one job. */
+  --badge-blue-bg: #dbe7fe;
+  --badge-blue-fg: #2f5fd8;
+  --badge-purple-bg: #ece4fb;
+  --badge-purple-fg: #7c3aed;
+  --badge-green-bg: #dcf5e3;
+  --badge-green-fg: #1f9254;
   --solid: #e9ebf0;           /* user bubble — a soft neutral fill (was near-black; too heavy in light) */
   --on-solid: #1f2227;
   --glass: rgba(255, 255, 255, 0.9);        /* frosted bars over content */
@@ -142,6 +152,12 @@ html[data-theme="dark"] {
   --teal-ink: #46c0b2;
   --teal-line: #1f4a45;
   --teal-soft: #11302d;
+  --badge-blue-bg: #223357;
+  --badge-blue-fg: #8fb4ff;
+  --badge-purple-bg: #35294f;
+  --badge-purple-fg: #c4a4f7;
+  --badge-green-bg: #1b3626;
+  --badge-green-fg: #6fd99a;
   --solid: #2e3138;
   --on-solid: #e6e8eb;
   --glass: rgba(28, 30, 34, 0.9);

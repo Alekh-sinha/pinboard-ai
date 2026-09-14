@@ -65,7 +65,9 @@ def test_agents_and_memory_rest(tmp_path):
     # ships:false personas (teams, ops, design) need OPENWORKER_UNSHIPPED=1.
     names = [a["name"] for a in agents]
     assert names[0] == "cowork"
-    assert set(names) == {"cowork", "security", "cloud-posture", "dep-audit", "general-lead"}
+    assert set(names) == {
+        "cowork", "security", "cloud-posture", "dep-audit", "general-lead", "research-lead",
+    }
     assert "skills" in client.get("/v1/skills").json()  # catalog (may be empty)
 
     added = client.post("/v1/memory", json={"content": "prefer pathlib"}).json()

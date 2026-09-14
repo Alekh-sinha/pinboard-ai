@@ -120,6 +120,52 @@ def test_users_own_copy_shadows_the_bundle_row(tmp_path, monkeypatch):
     assert len(rows) == 1 and rows[0]["scope"] != "coworker"
 
 
+def test_lead_keeps_its_own_bundle_and_also_gains_the_shared_lead_pool(tmp_path, monkeypatch):
+    """2026-09-13 widening: persona_skill_scope() used to be exclusive (either the
+    persona's own bundled skills/ dir, or — for general-lead/general-worker only —
+    the shared writable pool). A real team lead with its own bundled skills (like
+    sec-review here) must keep those AND pick up the shared "lead" pool now that any
+    team:lead persona qualifies for it, not just general-lead."""
+    mgr = _mgr(tmp_path, monkeypatch)
+    _install(mgr, tmp_path, extra="team: lead")
+    _session(mgr, "s1", "sec-review")
+
+    mgr.skill_store.create(
+        name="shared-lead-skill", description="taught to any lead", instructions="do it", scope="lead"
+    )
+
+    names = mgr.effective_skill_names("s1")
+    # Its own bundled skills survive the widening...
+    assert {"semgrep-triage", "secret-scan"} <= names
+    # ...and it now also sees the shared lead-wide pool.
+    assert "shared-lead-skill" in names
+
+
+def test_research_team_personas_actually_have_the_doc_helper_skill_they_are_told_to_use(
+    tmp_path, monkeypatch
+):
+    """Regression guard (owner-hit 2026-09-14): research-lead's own prompt instructs
+    it to `load_skill("doc-helper")`, but the skill was only ever bundled under the
+    two WORKER personas — the lead's own `load_skill` call failed with "unknown
+    skill", and rather than surface that error it silently hand-wrote a fake .docx.
+    Nothing caught the mismatch between what a persona's prompt promises and what its
+    manifest actually grants; this pins all three real, shipped personas that
+    reference doc-helper by name so that class of silent gap can't recur unnoticed
+    for this skill. Uses the REAL builtin registry (default builtin_dir), not a
+    synthetic install — this must reflect what actually ships."""
+    monkeypatch.setenv("COWORKER_STATE_DIR", str(tmp_path / "state"))
+    mgr = SessionManager(workspace=tmp_path, provider=ScriptedProvider())
+    for sid, agent in (
+        ("s-lead", "research-lead"),
+        ("s-research", "research-assistant"),
+        ("s-doc", "doc-worker"),
+    ):
+        _session(mgr, sid, agent)
+        assert "doc-helper" in mgr.effective_skill_names(sid), (
+            f"{agent} references doc-helper in its prompt but can't resolve it"
+        )
+
+
 def test_persona_mcp_scope(tmp_path, monkeypatch):
     mgr = _mgr(tmp_path, monkeypatch)
     _install(mgr, tmp_path, extra="mcp: [semgrep-server]")

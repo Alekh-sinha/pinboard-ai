@@ -130,7 +130,10 @@ export function WorkerRegistrationSection({
         ) : (
           <div className={CARD + " divide-y divide-line"}>
             {workers.map((w) => (
-              <div key={w.id} className="px-[18px] py-3 flex items-center gap-3">
+              <div key={w.id} className="px-[14px] py-3 flex items-center gap-3">
+                <span className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-badgePurpleBg text-badgePurpleFg shrink-0">
+                  <Icon name="wrench" size={14} />
+                </span>
                 <div className="min-w-0 flex-1">
                   <div className="text-[13px] font-medium truncate">{w.name}</div>
                   <div className="text-[12px] text-faint truncate mt-0.5">{w.tagline}</div>
@@ -147,18 +150,21 @@ export function WorkerRegistrationSection({
       </div>
 
       <button
-        className="w-full flex items-center gap-2 px-4 pt-2 text-[13px] text-muted select-none"
+        className="w-full flex items-center gap-3 rounded-xl2 border border-line bg-panel hover:border-lineStrong px-[14px] py-3 text-left select-none transition-colors"
         data-testid="register-worker-disclosure"
         onClick={() => setExpanded((v) => !v)}
       >
-        <Icon name="chevronRight" size={12} className={"transition-transform" + (expanded ? " rotate-90" : "")} />
-        <span>{t("team_setup.register_title")}</span>
+        <span className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-badgePurpleBg text-badgePurpleFg shrink-0">
+          <Icon name="plus" size={14} />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block text-[13px] font-medium">{t("team_setup.register_title")}</span>
+          <span className="block text-[12px] text-faint mt-0.5">{t("team_setup.register_desc")}</span>
+        </span>
+        <Icon name="chevronRight" size={13} className={"text-faint shrink-0 transition-transform" + (expanded ? " rotate-90" : "")} />
       </button>
       {expanded && (
         <div>
-          <p className="text-[12px] text-muted mb-2.5 leading-relaxed max-w-[560px]">
-            {t("team_setup.register_desc")}
-          </p>
           <div className={CARD + " p-4 space-y-3"}>
             <input className={INPUT} placeholder={t("team_setup.field_name")} value={name} onChange={(e) => setName(e.target.value)} />
             <input className={INPUT} placeholder={t("team_setup.field_tagline")} value={tagline} onChange={(e) => setTagline(e.target.value)} />

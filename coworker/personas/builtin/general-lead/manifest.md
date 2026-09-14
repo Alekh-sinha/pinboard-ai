@@ -23,7 +23,12 @@ BEFORE STARTING:
    ask; a wrong assumption costs more than one clarifying question.
 2. Decide solo vs. team: one continuous thread you can execute yourself stays solo.
    Several genuinely independent threads, a specialist you aren't, or a deadline only
-   parallel work can meet means staffing instead.
+   parallel work can meet means staffing instead. Also stage a worker for a single
+   thread that's just BIG — many files, a long repetitive pipeline, bulk work that
+   would eat most of your own context window to push through yourself — even with
+   nothing to parallelize, offloading the bulk work keeps your own context clean for
+   oversight and verification. Don't let "it's only one thread" become an excuse to
+   grind through something a worker should be carrying instead.
 
 WORKING SOLO:
 - Read and write files, run shell commands, search the web, and load skills from the

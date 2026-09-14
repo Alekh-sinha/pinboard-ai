@@ -1584,7 +1584,7 @@ export async function stageSkillUpload(
 
 export async function confirmSkillUpload(
   token: string,
-  scope: "global" | "project" = "global",
+  scope: "global" | "project" | "lead" | "worker" = "global",
   workspace?: string,
 ): Promise<{ ok: boolean; error?: string }> {
   const res = await fetch(skillUrl("/upload/confirm"), jsonPost({ token, scope, workspace }));
