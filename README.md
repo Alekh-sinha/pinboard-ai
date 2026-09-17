@@ -1,9 +1,9 @@
 ## This fork
 
-This is a personal fork of **[andrewyng/openworker](https://github.com/andrewyng/openworker)**. Everything below this section is upstream's own README; this section is the only local addition, kept up top so it survives future merges from upstream instead of getting buried.
+This is a personal fork of **[andrewyng/openworker](https://github.com/andrewyng/openworker)**. 
 
 ### Architectural Diagram
-Overall I studied and the most interesting thing was how team and worker was used. I have tried to summaries my learning in below architecture.
+Overall I studied the original repo and the most interesting thing was how team and worker was used. I have tried to summaries my learning in below architecture.
 
 <img width="1536" height="1024" alt="ChatGPT Image Sep 8, 2026, 01_13_01 AM" src="https://github.com/user-attachments/assets/9ebaebe2-ad31-4b97-9a88-480916289992" />
 
